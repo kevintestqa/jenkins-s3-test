@@ -68,6 +68,28 @@ pipeline {
             }
         }
 
+        stage('Validate Terraform') {
+            steps {
+                {
+                    sh '''
+
+                    terraform validate
+                    '''
+                }
+            }
+        }
+
+        stage('Format Terraform') {
+            steps {
+                {
+                    sh '''
+
+                    terraform fmt
+                    '''
+                }
+            }
+        }
+
         stage('Plan Terraform') {
             steps {
                 withCredentials([[
@@ -94,6 +116,35 @@ pipeline {
                     export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
                     terraform apply -auto-approve tfplan
                     '''
+                }
+            }
+        }
+
+        stage('Optional Destroy') {
+            steps {
+                script {
+                    def destroyChoice = input(
+                        message: 'Do you want to run terraform destroy?',
+                        ok: 'Submit',
+                        parameters: [
+                            choice(
+                                name: 'DESTROY',
+                                choices: ['no', 'yes'],
+                                description: 'Select yes to destroy resources'
+                            )
+                        ]
+                    )
+
+                    if (destroyChoice == 'yes') {
+                        withCredentials([[
+                            $class: 'AmazonWebServicesCredentialsBinding',
+                            credentialsId: 'aws-iam-user-creds'
+                        ]]) {
+                            sh 'terraform destroy -auto-approve'
+                        }
+                    } else {
+                        echo "Skipping destroy"
+                    }
                 }
             }
         }
