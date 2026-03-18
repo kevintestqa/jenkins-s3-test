@@ -70,23 +70,17 @@ pipeline {
 
         stage('Validate Terraform') {
             steps {
-                {
                     sh '''
-
                     terraform validate
                     '''
-                }
             }
         }
 
         stage('Format Terraform') {
             steps {
-                {
                     sh '''
-
                     terraform fmt
                     '''
-                }
             }
         }
 
