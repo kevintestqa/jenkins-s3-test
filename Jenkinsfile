@@ -1,115 +1,61 @@
 pipeline {
     agent any
-   
+
     environment {
-        AWS_REGION = 'us-east-1' 
+        AWS_DEFAULT_REGION = 'us-east-1'
+        TF_IN_AUTOMATION   = 'true'
+        SNYK_ORG           = credentials('snyk-org-slug')
     }
+
     stages {
-        stage('Set AWS Credentials') {
+        stage('Checkout') {
             steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'jenkinsTest' //This needs to be changed before runtime to match Jenkins credentials
-                ]]) {
+                checkout scm
+            }
+        }
+
+        stage('Snyk IaC Scan Test') {
+            steps {
+                withCredentials([string(credentialsId: 'snyk-api-token-string', variable: 'SNYK_TOKEN')]) {
                     sh '''
-                    echo "AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID"
-                    aws sts get-caller-identity
+                        export PATH=$PATH:/var/lib/jenkins/tools/io.snyk.jenkins.tools.SnykInstallation/snyk
+                        snyk-linux auth $SNYK_TOKEN
+                        snyk-linux iac test --org=$SNYK_ORG --severity-threshold=high || true
                     '''
                 }
             }
         }
-        stage('Checkout Code') {
+        
+        stage('Snyk IaC Scan Monitor') {
             steps {
-                git branch: 'main', url: 'https://github.com/kevintestqa/jenkins-s3-test' 
+                snykSecurity(
+                    snykInstallation: 'snyk',
+                    snykTokenId: 'snyk-api-token',
+                    additionalArguments: '--iac --report --org=$SNYK_ORG --severity-threshold=high',
+                    failOnIssues: true,
+                    monitorProjectOnBuild: false
+                )
             }
         }
 
-        // stage('Testing') {
-        //     // withEnv(["JFROG_BINARY_PATH=${tool 'jfrog-cli'}"]) {
-        //     // // The 'jf' tool is available in this scope.
-        //     // }
-        //     steps {
-        //         withCredentials([string(credentialsId: 'jfrog-creds', variable: 'JFROG_TOKEN')]) {
-        //             // Show the installed version of JFrog CLI
-        //             jf '-v'
-                    
-        //             // Show the configured JFrog Platform instances
-        //             jf 'c show'
-                    
-        //             // Ping Artifactory
-        //             jf 'rt ping'
-                    
-        //             // Create a file and upload it to the repository
-        //             sh 'touch test-file'
-        //             // Fixed upload command syntax
-        //             sh 'jf rt upload test-file tf-terraform/ --url=https://trial7zoppg.jfrog.io/artifactory/ --user=mcdonald.dm.aaron@gmail.com --password=$JFROG_TOKEN'
-                    
-        //             // Publish the build-info to Artifactory
-        //             jf 'rt bp'
-                    
-        //             // Fixed download command syntax
-        //             sh 'jf rt download tf-terraform/test-file --url=https://trial7zoppg.jfrog.io/artifactory/ --user=mcdonald.dm.aaron@gmail.com --password=$JFROG_TOKEN'
-        //         }
-        //     } 
-        // }
-    
-        stage('Initialize Terraform') {
+        stage('Terraform Init') {
             steps {
                 withCredentials([[
                     $class: 'AmazonWebServicesCredentialsBinding',
                     credentialsId: 'jenkinsTest'
                 ]]) {
-                    sh '''
-                    export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                    export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                    terraform init
-                    '''
+                    sh 'terraform init'
                 }
             }
         }
 
-        stage('Validate Terraform') {
-            steps {
-                    sh '''
-                    terraform validate
-                    '''
-            }
-        }
-
-        stage('Format Terraform') {
-            steps {
-                    sh '''
-                    terraform fmt
-                    '''
-            }
-        }
-
-        stage('Plan Terraform') {
+        stage('Terraform Plan') {
             steps {
                 withCredentials([[
                     $class: 'AmazonWebServicesCredentialsBinding',
                     credentialsId: 'jenkinsTest'
                 ]]) {
-                    sh '''
-                    export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                    export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                    terraform plan -out=tfplan
-                    '''
-                }
-            }
-        }
-        stage('Apply Terraform') {
-            steps {
-                input message: "Approve Terraform Apply?", ok: "Deploy"
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'jenkinsTest'
-                ]]) {
-                    sh '''
-                    export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                    export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                    terraform apply -auto-approve tfplan
-                    '''
+                    sh 'terraform plan'
                 }
             }
         }
@@ -141,14 +87,6 @@ pipeline {
                     }
                 }
             }
-        }
-    }
-    post {
-        success {
-            echo 'Terraform deployment completed successfully!'
-        }
-        failure {
-            echo 'Terraform deployment failed!'
         }
     }
 }
